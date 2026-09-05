@@ -32,19 +32,24 @@ if (-not (Test-Path $Python)) {
     throw "Python runtime not found: $Python. Set DANDY_QWEN_PYTHON to the Python that has gradio and gradio_client installed."
 }
 
+$Studio = Join-Path $PackageRoot "studio.py"
+if (-not (Test-Path $Studio)) {
+    throw "Studio UI not found: $Studio"
+}
+
 $OutLog = Join-Path $LogDir "operator-ui-$Port.out.log"
 $ErrLog = Join-Path $LogDir "operator-ui-$Port.err.log"
 
 $Process = Start-Process `
     -FilePath $Python `
-    -ArgumentList @("app.py") `
+    -ArgumentList @("studio.py") `
     -WorkingDirectory $PackageRoot `
     -WindowStyle Hidden `
     -RedirectStandardOutput $OutLog `
     -RedirectStandardError $ErrLog `
     -PassThru
 
-Write-Output "Started operator UI pid=$($Process.Id)"
+Write-Output "Started tabbed Dandy Qwen studio pid=$($Process.Id)"
 
 for ($i = 0; $i -lt 30; $i++) {
     Start-Sleep -Seconds 1
