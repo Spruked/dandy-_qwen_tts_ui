@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import time
+import webbrowser
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -14,6 +16,7 @@ from gradio_client import Client
 
 
 APP_ROOT = Path(__file__).resolve().parent
+SCRIPTS_DIR = APP_ROOT / "scripts"
 OUTPUT_DIR = APP_ROOT / "generated_audio"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -22,6 +25,24 @@ BACKEND_OPTIONS = {
     "CustomVoice - built-in voices (8031)": "http://127.0.0.1:8031",
     "VoiceClone/Base - clone UI (8032)": "http://127.0.0.1:8032",
     "VoiceDesign - design UI (8033)": "http://127.0.0.1:8033",
+}
+
+MODE_INFO = {
+    "custom": {
+        "name": "CustomVoice",
+        "url": "http://127.0.0.1:8031",
+        "description": "Named Qwen speakers with instruction/style control.",
+    },
+    "clone": {
+        "name": "VoiceClone / Base",
+        "url": "http://127.0.0.1:8032",
+        "description": "Reference-audio cloning plus save/load reusable voice prompts.",
+    },
+    "design": {
+        "name": "VoiceDesign",
+        "url": "http://127.0.0.1:8033",
+        "description": "Create voices from natural-language descriptions.",
+    },
 }
 
 BACKEND_ORDER = [
@@ -44,6 +65,7 @@ for option_url in (
 LANGUAGES = [
     "English",
     "Auto",
+    "Chinese",
     "German",
     "Italian",
     "Portuguese",
@@ -173,11 +195,11 @@ def backend_status(backend_url: str) -> str:
 
     kind = _backend_kind(backend_url)
     if kind == "custom":
-        return f"Connected to CustomVoice at {backend_url}. Wrapper Generate is available."
+        return f"Connected to CustomVoice at {backend_url}. Dandy wrapper Generate is available."
     if kind == "clone":
-        return f"Connected to VoiceClone/Base at {backend_url}. Use the direct clone UI there."
+        return f"Connected to VoiceClone/Base at {backend_url}. Open Native Qwen UI for cloning and saved voice prompts."
     if kind == "design":
-        return f"Connected to VoiceDesign at {backend_url}. Use the direct design UI there."
+        return f"Connected to VoiceDesign at {backend_url}. Open Native Qwen UI for voice design."
     return f"Connected to Qwen backend at {backend_url}."
 
 
@@ -190,6 +212,92 @@ def select_backend(mode: str):
 def apply_preset(preset: str):
     data = VOICE_PRESETS.get(preset) or {}
     return data.get("speaker", "Ryan"), data.get("instruction", "")
+
+
+def _run_powershell(script_name: str, *args: str, timeout: int = 210) -> tuple[int, str]:
+    script = SCRIPTS_DIR / script_name
+    if not script.exists():
+        return 1, f"Launcher script not found: {script}"
+
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(script),
+        *args,
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=str(APP_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return 1, f"Timed out waiting for {script_name}. Check logs in {APP_ROOT / 'logs'}."
+    except Exception as exc:
+        return 1, f"{type(exc).__name__}: {exc}"
+
+    output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part and part.strip())
+    return result.returncode, output
+
+
+def switch_mode(mode: str):
+    info = MODE_INFO[mode]
+    code, output = _run_powershell("Start-QwenTTSMode.ps1", "-Mode", mode)
+    url = info["url"]
+    if code != 0:
+        return url, f"Failed to start {info['name']}.\n{output}"
+
+    status = backend_status(url)
+    if output:
+        status = f"{status}\n\n{output}"
+    return url, status
+
+
+def stop_qwen_models():
+    code, output = _run_powershell("Stop-QwenTTSModels.ps1", timeout=30)
+    if code != 0:
+        return f"Failed to stop Qwen model processes.\n{output}"
+    return output or "Qwen model ports 8031-8033 are stopped."
+
+
+def open_native_ui(backend_url: str):
+    backend_url = _normalize_url(backend_url or _detect_backend())
+    if not _backend_alive(backend_url):
+        return f"No live Qwen UI at {backend_url}. Start a mode first."
+    webbrowser.open(backend_url)
+    return f"Opened native Qwen UI: {backend_url}"
+
+
+def open_output_folder():
+    try:
+        os.startfile(OUTPUT_DIR)  # type: ignore[attr-defined]
+        return f"Opened {OUTPUT_DIR}"
+    except Exception as exc:
+        return f"Could not open output folder: {type(exc).__name__}: {exc}"
+
+
+def recent_outputs():
+    rows = []
+    files = sorted(
+        [p for p in OUTPUT_DIR.iterdir() if p.is_file() and p.suffix.lower() in {".wav", ".mp3", ".flac", ".ogg"}],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )[:20]
+    for path in files:
+        stat = path.stat()
+        rows.append(
+            [
+                path.name,
+                round(stat.st_size / 1024, 1),
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+            ]
+        )
+    return rows
 
 
 def synthesize(
@@ -213,10 +321,10 @@ def synthesize(
         return None, "", f"No listener at {backend_url}."
 
     if kind == "clone":
-        return None, "", f"VoiceClone/Base is live at {backend_url}. Use that direct UI for cloning and cloned-voice generation."
+        return None, "", f"VoiceClone/Base is live at {backend_url}. Use Open Native Qwen UI for cloning and cloned-voice generation."
 
     if kind == "design":
-        return None, "", f"VoiceDesign is live at {backend_url}. Use that direct UI for voice design generation."
+        return None, "", f"VoiceDesign is live at {backend_url}. Use Open Native Qwen UI for voice design generation."
 
     try:
         client = _client(backend_url)
@@ -247,56 +355,105 @@ CSS = """
 """
 
 
-with gr.Blocks(title="Dandy Qwen TTS", css=CSS) as demo:
+with gr.Blocks(title="Dandy Qwen TTS") as demo:
     gr.Markdown("# Dandy Qwen TTS")
+    gr.Markdown("Windows-native operator console for the local Qwen3-TTS stack.")
 
     with gr.Row():
         backend_mode = gr.Dropdown(
-            label="Backend mode",
+            label="Backend",
             choices=list(BACKEND_OPTIONS.keys()),
             value="Auto-detect live backend",
             scale=2,
         )
-        backend = gr.Textbox(label="Qwen backend", value=DEFAULT_BACKEND, scale=3)
+        backend = gr.Textbox(label="Active Qwen URL", value=DEFAULT_BACKEND, scale=3)
         check = gr.Button("Check", scale=1)
 
-    status = gr.Textbox(label="Backend status", lines=2, elem_id="status_box")
-
     with gr.Row():
-        with gr.Column(scale=2):
-            text = gr.Textbox(
-                label="Text",
-                lines=8,
-                value="Welcome back to the Phil and Jim Dandy Show. Today we are testing the new Qwen voices.",
-            )
-            preset = gr.Dropdown(
-                label="Voice preset",
-                choices=list(VOICE_PRESETS.keys()),
-                value="Phil candidate - Ryan",
+        start_custom = gr.Button("Start CustomVoice", variant="primary")
+        start_clone = gr.Button("Start Voice Clone")
+        start_design = gr.Button("Start Voice Design")
+        open_native = gr.Button("Open Native Qwen UI")
+        stop_models = gr.Button("Stop Qwen Models", variant="stop")
+
+    status = gr.Textbox(label="Backend / launcher status", lines=5, elem_id="status_box")
+
+    with gr.Tabs():
+        with gr.Tab("Dandy CustomVoice"):
+            with gr.Row():
+                with gr.Column(scale=2):
+                    text = gr.Textbox(
+                        label="Text",
+                        lines=8,
+                        value="Welcome back to the Phil and Jim Dandy Show. Today we are testing the new Qwen voices.",
+                    )
+                    preset = gr.Dropdown(
+                        label="Voice preset",
+                        choices=list(VOICE_PRESETS.keys()),
+                        value="Phil candidate - Ryan",
+                    )
+                    with gr.Row():
+                        language = gr.Dropdown(label="Language", choices=LANGUAGES, value="English")
+                        speaker = gr.Dropdown(label="Speaker", choices=SPEAKERS, value="Ryan")
+                    instruction = gr.Textbox(
+                        label="Instruction / style",
+                        lines=3,
+                        value=VOICE_PRESETS["Phil candidate - Ryan"]["instruction"],
+                    )
+                    generate = gr.Button("Generate", variant="primary")
+
+                with gr.Column(scale=2):
+                    audio = gr.Audio(label="Generated audio", type="filepath", autoplay=True)
+                    saved_path = gr.Textbox(label="Saved file")
+                    detail = gr.Textbox(label="Result detail", lines=10, elem_id="status_box")
+
+        with gr.Tab("Recent Audio"):
+            recent = gr.Dataframe(
+                headers=["File", "KB", "Modified"],
+                datatype=["str", "number", "str"],
+                value=recent_outputs(),
+                interactive=False,
+                label="Last 20 generated files",
             )
             with gr.Row():
-                language = gr.Dropdown(label="Language", choices=LANGUAGES, value="English")
-                speaker = gr.Dropdown(label="Speaker", choices=SPEAKERS, value="Ryan")
-            instruction = gr.Textbox(
-                label="Instruction",
-                lines=3,
-                value=VOICE_PRESETS["Phil candidate - Ryan"]["instruction"],
-            )
-            generate = gr.Button("Generate", variant="primary")
+                refresh_recent = gr.Button("Refresh")
+                open_folder = gr.Button("Open generated_audio Folder")
+            folder_status = gr.Textbox(label="Folder status", lines=1)
 
-        with gr.Column(scale=2):
-            audio = gr.Audio(label="Generated audio", type="filepath", autoplay=True)
-            saved_path = gr.Textbox(label="Saved file")
-            detail = gr.Textbox(label="Result detail", lines=10, elem_id="status_box")
+        with gr.Tab("Mode Guide"):
+            gr.Markdown(
+                """
+### CustomVoice
+Named Qwen speakers such as Ryan, Aiden, Vivian, Eric and others, with instruction/style control. The Dandy Generate panel talks directly to this mode.
+
+### Voice Clone / Base
+Use reference audio to clone a voice. The native Qwen UI includes immediate clone-and-generate plus save/load reusable voice prompts.
+
+### VoiceDesign
+Describe a voice in natural language and generate speech with that designed voice.
+
+Only one heavy Qwen model should be loaded at a time on this machine. Starting another mode stops the current Qwen model first; the Dandy operator UI remains running.
+"""
+            )
 
     backend_mode.change(select_backend, inputs=[backend_mode], outputs=[backend, status])
     check.click(backend_status, inputs=[backend], outputs=[status])
+
+    start_custom.click(lambda: switch_mode("custom"), outputs=[backend, status])
+    start_clone.click(lambda: switch_mode("clone"), outputs=[backend, status])
+    start_design.click(lambda: switch_mode("design"), outputs=[backend, status])
+    open_native.click(open_native_ui, inputs=[backend], outputs=[status])
+    stop_models.click(stop_qwen_models, outputs=[status])
+
     preset.change(apply_preset, inputs=[preset], outputs=[speaker, instruction])
     generate.click(
         synthesize,
         inputs=[text, language, speaker, instruction, backend],
         outputs=[audio, saved_path, detail],
     )
+
+    refresh_recent.click(recent_outputs, outputs=[recent])
+    open_folder.click(open_output_folder, outputs=[folder_status])
 
 
 if __name__ == "__main__":
@@ -305,4 +462,6 @@ if __name__ == "__main__":
         server_port=int(os.getenv("DANDY_QWEN_UI_PORT", "7861")),
         share=False,
         pwa=True,
+        theme=gr.themes.Soft(),
+        css=CSS,
     )
