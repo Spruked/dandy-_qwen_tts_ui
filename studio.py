@@ -22,9 +22,90 @@ NATIVE_URLS = {
 }
 
 CSS = """
-.gradio-container { max-width: none !important; }
-#status_box textarea { font-family: Consolas, monospace; font-size: 12px; }
-.native-frame { width: 100%; height: 76vh; min-height: 720px; border: 1px solid var(--border-color-primary); border-radius: 10px; background: white; }
+html, body {
+    background: #07111f !important;
+}
+.gradio-container {
+    max-width: none !important;
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at 15% 0%, rgba(0, 205, 255, .16), transparent 30%),
+        radial-gradient(circle at 90% 5%, rgba(104, 76, 255, .16), transparent 28%),
+        linear-gradient(180deg, #081421 0%, #0b1624 48%, #09111c 100%) !important;
+}
+.dandy-hero {
+    margin: 2px 0 14px 0;
+    padding: 22px 26px;
+    border: 1px solid rgba(72, 211, 255, .32);
+    border-radius: 16px;
+    background: linear-gradient(120deg, rgba(0, 185, 235, .16), rgba(67, 52, 180, .18));
+    box-shadow: 0 14px 40px rgba(0, 0, 0, .26);
+}
+.dandy-hero h1 {
+    margin: 2px 0 4px 0 !important;
+    color: #f4fbff !important;
+    font-size: 2.1rem !important;
+    letter-spacing: .01em;
+}
+.dandy-hero p {
+    color: #b8cbda !important;
+    margin: 0 !important;
+}
+.dandy-kicker {
+    color: #51dcff;
+    font-size: .76rem;
+    font-weight: 800;
+    letter-spacing: .16em;
+}
+button[role="tab"] {
+    border-radius: 10px 10px 0 0 !important;
+    border: 1px solid rgba(123, 165, 196, .28) !important;
+    background: linear-gradient(180deg, #17283a, #101e2d) !important;
+    color: #b9cad8 !important;
+    font-weight: 750 !important;
+    padding: 12px 16px !important;
+    margin-right: 4px !important;
+}
+button[role="tab"]:hover {
+    color: #ffffff !important;
+    border-color: rgba(71, 214, 255, .7) !important;
+    transform: translateY(-1px);
+}
+button[role="tab"][aria-selected="true"] {
+    color: #07111f !important;
+    background: linear-gradient(90deg, #4be0ff, #78b8ff) !important;
+    border-color: #80e9ff !important;
+    box-shadow: 0 0 22px rgba(61, 215, 255, .28);
+}
+#check_btn {
+    background: linear-gradient(90deg, #1688c8, #36b7dc) !important;
+    color: white !important;
+    border: none !important;
+}
+#generate_btn {
+    background: linear-gradient(90deg, #00b9dc, #437cf6) !important;
+    color: white !important;
+    border: none !important;
+    font-weight: 800 !important;
+}
+#stop_btn {
+    background: linear-gradient(90deg, #b62f52, #e34b62) !important;
+    color: white !important;
+    border: none !important;
+}
+#status_box textarea {
+    font-family: Consolas, monospace;
+    font-size: 12px;
+}
+.native-frame {
+    width: 100%;
+    height: 76vh;
+    min-height: 720px;
+    border: 1px solid rgba(82, 220, 255, .36);
+    border-radius: 12px;
+    background: white;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .3);
+}
 """
 
 
@@ -40,8 +121,10 @@ def iframe_html(url: str, label: str) -> str:
 
 def blank_frame(label: str) -> str:
     return (
-        '<div style="padding:28px;border:1px solid #999;border-radius:10px;min-height:180px">'
-        f'<h3>{label}</h3><p>Select this tab to start the required Qwen model and load its native Gradio interface here.</p>'
+        '<div style="padding:28px;border:1px solid rgba(72,211,255,.35);border-radius:12px;min-height:180px;'
+        'background:linear-gradient(135deg,#102337,#151c35);color:#d8e9f4">'
+        f'<h3 style="color:#5ee4ff">{label}</h3>'
+        '<p>Select this tab to start the required Qwen model and load its native Gradio interface here.</p>'
         '</div>'
     )
 
@@ -103,16 +186,20 @@ def recent_outputs():
 
 
 with gr.Blocks(title="Dandy Qwen TTS Studio") as demo:
-    gr.Markdown("# Dandy Qwen TTS Studio")
-    gr.Markdown(
-        "One Windows-native shell for Dandy controls plus the three native Qwen3-TTS Gradio workbenches. "
-        "Only one heavy Qwen model is kept loaded at a time."
+    gr.HTML(
+        """
+<div class="dandy-hero">
+  <div class="dandy-kicker">WINDOWS-NATIVE • LOCAL QWEN3-TTS • DANDY AUDIO LAB</div>
+  <h1>Dandy Qwen TTS Studio</h1>
+  <p>One operator shell for CustomVoice, Voice Clone, VoiceDesign, recording, generated audio and Audacity handoff.</p>
+</div>
+"""
     )
 
     with gr.Row():
         backend = gr.Textbox(label="Active Qwen URL", value=core.DEFAULT_BACKEND, scale=3)
-        check = gr.Button("Check Backend", scale=1)
-        stop_models = gr.Button("Stop Qwen Models", variant="stop", scale=1)
+        check = gr.Button("Check Backend", scale=1, elem_id="check_btn")
+        stop_models = gr.Button("Stop Qwen Models", variant="stop", scale=1, elem_id="stop_btn")
 
     status = gr.Textbox(label="Backend / launcher status", lines=5, elem_id="status_box")
 
@@ -139,7 +226,7 @@ with gr.Blocks(title="Dandy Qwen TTS Studio") as demo:
                         lines=3,
                         value=core.VOICE_PRESETS["Phil candidate - Ryan"]["instruction"],
                     )
-                    generate = gr.Button("Generate", variant="primary")
+                    generate = gr.Button("Generate", variant="primary", elem_id="generate_btn")
 
                 with gr.Column(scale=2):
                     audio = gr.Audio(label="Generated audio", type="filepath", autoplay=True)
@@ -179,7 +266,7 @@ with gr.Blocks(title="Dandy Qwen TTS Studio") as demo:
                 launch_audacity_button = gr.Button("Launch Audacity")
             tools_status = gr.Textbox(label="Tools status", lines=2)
             audacity_audio = gr.Audio(
-                label="Drop an audio file here, then Open in Audacity",
+                label="Drop an audio file here or record from microphone, then Open in Audacity",
                 type="filepath",
                 sources=["upload", "microphone"],
             )
@@ -195,7 +282,6 @@ with gr.Blocks(title="Dandy Qwen TTS Studio") as demo:
         outputs=[audio, saved_path, detail],
     )
 
-    # Tab navigation owns the heavy-model swap.
     dandy_tab.select(switch_custom_only, outputs=[backend, status])
     qwen_custom_tab.select(lambda: switch_and_embed("custom"), outputs=[backend, status, custom_frame])
     clone_tab.select(lambda: switch_and_embed("clone"), outputs=[backend, status, clone_frame])
