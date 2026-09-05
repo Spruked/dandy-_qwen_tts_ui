@@ -1,0 +1,20 @@
+# Python runtime
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Dandy/Qwen generated runtime data
+generated_audio/
+logs/
+staging/
+
+# Runtime/test probes
+probe*.json
+
+# Environment / secrets
+.env
+.env.*
+
+# Generic runtime logs
+*.log
